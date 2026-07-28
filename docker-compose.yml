@@ -1,7 +1,13 @@
+# Production / Hostinger: upload the full project (Dockerfile, package.json, src, .env)
+# then: docker compose up -d --build
+#
+# Do NOT rely on pulling "streambox-backend:*" from Docker Hub — that image is not published.
+# pull_policy: build forces a local build from ./Dockerfile.
+
 services:
   redis:
     image: redis:7-alpine
-    container_name: streambox-redis
+    container_name: streambox-backend
     ports:
       - "6379:6379"
     volumes:
@@ -17,7 +23,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: streambox-backend:${IMAGE_TAG:-dev}
+    # Local tag only — never pull from a registry
+    image: streambox-api:local
+    pull_policy: build
     container_name: streambox-api
     ports:
       - "${PORT:-3000}:3000"
@@ -35,7 +43,7 @@ services:
       TMDB_API_KEY: ${TMDB_API_KEY}
       TMDB_BASE_URL: ${TMDB_BASE_URL:-https://api.themoviedb.org/3}
       MOVIES_RULSZ: ${MOVIES_RULSZ:-https://www.5movierulz.vote/}
-      # Always use the compose redis service (ignore host REDIS_URL)
+      # Compose redis service (not host 127.0.0.1)
       REDIS_URL: redis://redis:6379
     depends_on:
       redis:
@@ -52,14 +60,17 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
+  # Optional local hot-reload — not for Hostinger production
+  # docker compose --profile dev up -d --build
   api-dev:
     profiles: ["dev"]
     build:
       context: .
       dockerfile: Dockerfile.dev
-    image: streambox-backend:dev-hot
+    image: streambox-api:dev-local
+    pull_policy: build
     container_name: streambox-api-dev
     ports:
       - "${PORT:-3000}:3000"
