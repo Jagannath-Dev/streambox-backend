@@ -6,6 +6,7 @@ import { createRedisCache } from './infrastructure/redis/redis-cache.js';
 import { SeedrClient } from './infrastructure/seedr/seedr-client.js';
 import { createSupabaseClient } from './infrastructure/supabase/client.js';
 import { SupabaseMovieRepository } from './infrastructure/supabase/movie-repository.js';
+import { SupabaseSeedrDbRepository } from './infrastructure/supabase/seedr-db-repository.js';
 import { TmdbService } from './infrastructure/tmdb/tmdb.service.js';
 import { errorHandlerPlugin } from './presentation/plugins/error-handler.js';
 import { swaggerPlugin, swaggerUiPlugin } from './presentation/plugins/swagger.js';
@@ -40,8 +41,10 @@ export async function buildApp(env: Env) {
     await cache.close();
   });
 
-  const seedr = new SeedrClient(env);
-  const movies = new SupabaseMovieRepository(createSupabaseClient(env), env.MOVIES_RULSZ);
+  const supabase = createSupabaseClient(env);
+  const seedrDb = new SupabaseSeedrDbRepository(supabase);
+  const seedr = new SeedrClient(env, seedrDb);
+  const movies = new SupabaseMovieRepository(supabase, env.MOVIES_RULSZ);
   const tmdb = new TmdbService(env);
 
   await healthRoutes(app, cache);

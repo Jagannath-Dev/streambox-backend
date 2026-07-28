@@ -13,6 +13,7 @@ import {
   parseSeedrTorrentProgress,
   seedrTorrentDisplayName,
 } from '../../shared/seedr/torrent-utils.js';
+import type { SupabaseSeedrDbRepository } from '../supabase/seedr-db-repository.js';
 
 type TokenResponse = {
   access_token: string;
@@ -45,32 +46,59 @@ type SeedrFolderApi = {
 };
 
 /**
- * Seedr client aligned with the mobile app:
- * - OAuth password grant (`seedr_chrome`)
- * - Library via `GET /api/folder` (+ nested folders)
- * - Add magnet via `resource.php` `func=add_torrent`
- * - Play via `func=fetch_file` + REST HLS
+ * Seedr client — credentials + tokens from Supabase `seedr_db` (id=1).
+ * Flow: use access_token → refresh → email/password login → save tokens back to DB.
  */
 export class SeedrClient {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private expiresAt = 0;
+  private email: string | null = null;
+  private password: string | null = null;
+  private loadedFromDb = false;
 
-  constructor(private readonly env: Env) {
-    if (env.SEEDR_ACCESS_TOKEN) {
-      this.accessToken = env.SEEDR_ACCESS_TOKEN;
-      this.expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+  constructor(
+    private readonly env: Env,
+    private readonly seedrDb: SupabaseSeedrDbRepository,
+  ) {}
+
+  private async loadAccount(): Promise<void> {
+    if (this.loadedFromDb && this.email && this.password) return;
+    const account = await this.seedrDb.getAccount();
+    if (!account?.email || !account.password) {
+      throw AppError.notFound('seedr_db account not configured (id=1)');
     }
-    if (env.SEEDR_REFRESH_TOKEN) this.refreshToken = env.SEEDR_REFRESH_TOKEN;
+    this.email = account.email;
+    this.password = account.password;
+    this.accessToken = account.accessToken;
+    this.refreshToken = account.refreshToken;
+    this.expiresAt = account.expiresAt ? new Date(account.expiresAt).getTime() : 0;
+    this.loadedFromDb = true;
+  }
+
+  private async persistTokens(): Promise<void> {
+    if (!this.accessToken) return;
+    await this.seedrDb.saveTokens({
+      accessToken: this.accessToken,
+      refreshToken: this.refreshToken,
+      expiresAt: new Date(this.expiresAt || Date.now() + 3600_000),
+    });
+  }
+
+  private applyTokenResponse(data: TokenResponse): void {
+    this.accessToken = data.access_token;
+    if (data.refresh_token) this.refreshToken = data.refresh_token;
+    this.expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000 - 60_000;
   }
 
   private async login(): Promise<void> {
+    await this.loadAccount();
     const body = new URLSearchParams({
       grant_type: 'password',
       client_id: 'seedr_chrome',
       type: 'login',
-      username: this.env.SEEDR_EMAIL,
-      password: this.env.SEEDR_PASSWORD,
+      username: this.email!,
+      password: this.password!,
     });
 
     const res = await fetch(`${this.env.SEEDR_BASE_URL}/oauth_test/token.php`, {
@@ -81,7 +109,7 @@ export class SeedrClient {
 
     const text = await res.text();
     if (!res.ok) {
-      throw AppError.unauthorized('Seedr login failed — check SEEDR_EMAIL / SEEDR_PASSWORD');
+      throw AppError.unauthorized('Seedr login failed — check seedr_db email/password');
     }
 
     let data: TokenResponse;
@@ -92,10 +120,8 @@ export class SeedrClient {
     }
 
     if (!data.access_token) throw AppError.unauthorized('Seedr login failed — no access_token');
-
-    this.accessToken = data.access_token;
-    this.refreshToken = data.refresh_token ?? this.refreshToken;
-    this.expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000 - 60_000;
+    this.applyTokenResponse(data);
+    await this.persistTokens();
   }
 
   private async refresh(): Promise<boolean> {
@@ -113,14 +139,23 @@ export class SeedrClient {
     if (!res.ok) return false;
     const data = (await res.json()) as TokenResponse;
     if (!data.access_token) return false;
-    this.accessToken = data.access_token;
-    if (data.refresh_token) this.refreshToken = data.refresh_token;
-    this.expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000 - 60_000;
+    this.applyTokenResponse(data);
+    await this.persistTokens();
     return true;
   }
 
   async getValidToken(): Promise<string> {
+    await this.loadAccount();
     if (this.accessToken && Date.now() < this.expiresAt) return this.accessToken;
+    if (await this.refresh()) return this.accessToken!;
+    await this.login();
+    return this.accessToken!;
+  }
+
+  /** Force re-auth after 401. */
+  private async invalidateAndRelogin(): Promise<string> {
+    this.accessToken = null;
+    this.expiresAt = 0;
     if (await this.refresh()) return this.accessToken!;
     await this.login();
     return this.accessToken!;
@@ -171,9 +206,7 @@ export class SeedrClient {
     }
 
     if (res.status === 401) {
-      this.accessToken = null;
-      this.expiresAt = 0;
-      const retryToken = await this.getValidToken();
+      const retryToken = await this.invalidateAndRelogin();
       const retryPath =
         folderId == null || folderId === ''
           ? `/api/folder?access_token=${encodeURIComponent(retryToken)}`
@@ -204,6 +237,16 @@ export class SeedrClient {
       throw AppError.upstream('Seedr resource request failed', { cause: String(cause) });
     }
 
+    if (res.status === 401) {
+      const retryToken = await this.invalidateAndRelogin();
+      const retryBody = new URLSearchParams({ access_token: retryToken, ...fields });
+      res = await fetch(`${this.env.SEEDR_BASE_URL}/oauth_test/resource.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: retryBody,
+      });
+    }
+
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       if (res.status === 401) throw AppError.unauthorized('Seedr access denied');
@@ -215,9 +258,15 @@ export class SeedrClient {
 
   async getUser() {
     const token = await this.getValidToken();
-    const res = await fetch(`${this.env.SEEDR_BASE_URL}/rest/user`, {
+    let res = await fetch(`${this.env.SEEDR_BASE_URL}/rest/user`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      const retryToken = await this.invalidateAndRelogin();
+      res = await fetch(`${this.env.SEEDR_BASE_URL}/rest/user`, {
+        headers: { Authorization: `Bearer ${retryToken}` },
+      });
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw AppError.upstream('Seedr user error', { status: res.status, body: text.slice(0, 500) });
@@ -259,7 +308,6 @@ export class SeedrClient {
       }
     }
 
-    // Root-level playable files also count as videos.
     for (const f of rootFiles) {
       if (f.playVideo) {
         videos.push({
@@ -275,7 +323,6 @@ export class SeedrClient {
     return { space, loading, folders, videos, rootFiles };
   }
 
-  /** Root folder list (id, name, size) — app folder browser. */
   async listFolders() {
     const root = await this.getApiFolder();
     const folders = (root.folders ?? []).map((f) => ({
@@ -313,7 +360,6 @@ export class SeedrClient {
     };
   }
 
-  /** App `addMagnetUrl` — resource.php add_torrent. */
   addMagnet(magnet: string) {
     return this.resource<Record<string, unknown>>({
       func: 'add_torrent',
@@ -325,7 +371,6 @@ export class SeedrClient {
     const hlsUrl = `${this.env.SEEDR_BASE_URL}/rest/file/${fileId}/hls?access_token=${encodeURIComponent(token)}`;
     try {
       const res = await fetch(hlsUrl, { method: 'GET' });
-      // Seedr often returns 500 { infra: true } for HLS — treat only 2xx as available.
       if (!res.ok) return false;
       const contentType = res.headers.get('content-type') ?? '';
       if (contentType.includes('json')) {
@@ -338,7 +383,6 @@ export class SeedrClient {
     }
   }
 
-  /** App `getFile` — prefer direct CDN URL; HLS only if Seedr actually serves it. */
   async getFile(fileId: string | number): Promise<SeedrFilePlayback> {
     const token = await this.getValidToken();
     const stream = await this.resource<Record<string, unknown>>({

@@ -14,12 +14,8 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  SEEDR_EMAIL: z.string().email(),
-  SEEDR_PASSWORD: z.string().min(1),
+  /** Seedr email/password/tokens come from Supabase `seedr_db` (id=1). */
   SEEDR_BASE_URL: z.string().url().default('https://www.seedr.cc'),
-  // Optional — skip password grant if you already have tokens
-  SEEDR_ACCESS_TOKEN: z.string().optional().or(z.literal('')).transform((v) => v || undefined),
-  SEEDR_REFRESH_TOKEN: z.string().optional().or(z.literal('')).transform((v) => v || undefined),
   TMDB_API_KEY: z.string().min(1),
   TMDB_BASE_URL: z.string().url().default('https://api.themoviedb.org/3'),
   REDIS_URL: z

@@ -24,9 +24,18 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
+      NODE_ENV: ${NODE_ENV:-production}
       HOST: 0.0.0.0
       PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SEEDR_BASE_URL: ${SEEDR_BASE_URL:-https://www.seedr.cc}
+      TMDB_API_KEY: ${TMDB_API_KEY}
+      TMDB_BASE_URL: ${TMDB_BASE_URL:-https://api.themoviedb.org/3}
+      MOVIES_RULSZ: ${MOVIES_RULSZ:-https://www.5movierulz.vote/}
+      # Always use the compose redis service (ignore host REDIS_URL)
       REDIS_URL: redis://redis:6379
     depends_on:
       redis:
@@ -60,6 +69,14 @@ services:
       NODE_ENV: development
       HOST: 0.0.0.0
       PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SEEDR_BASE_URL: ${SEEDR_BASE_URL:-https://www.seedr.cc}
+      TMDB_API_KEY: ${TMDB_API_KEY}
+      TMDB_BASE_URL: ${TMDB_BASE_URL:-https://api.themoviedb.org/3}
+      MOVIES_RULSZ: ${MOVIES_RULSZ:-https://www.5movierulz.vote/}
       REDIS_URL: redis://redis:6379
     depends_on:
       redis:
