@@ -1,13 +1,8 @@
-# =============================================================================
-# Local / VPS (SSH) — build from Dockerfile:
-#   docker compose up -d --build
+# Hostinger Docker Manager = PULL ONLY.
+# Set DOCKER_IMAGE + all app secrets in Hostinger env (or provide .env next to compose).
 #
-# Hostinger Docker Manager often ONLY PULLS images (it skips local builds).
-# If you see "Image … Skipped" / "No such image", either:
-#   A) SSH into the VPS and run:  docker compose up -d --build
-#   B) Push an image to Docker Hub, set DOCKER_IMAGE, use:
-#        docker compose -f docker-compose.hostinger.yml up -d
-# =============================================================================
+# Important: do NOT re-list SUPABASE_*/TMDB_* under `environment:` with ${VAR}
+# unless Hostinger also injects them — empty ${VAR} overrides env_file and crashes the app.
 
 services:
   redis:
@@ -25,29 +20,21 @@ services:
       retries: 5
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    # No `image:` name here — naming it made Hostinger try to pull/skip a
-    # non-existent registry image instead of building.
+    image: ${DOCKER_IMAGE:?Set DOCKER_IMAGE e.g. youruser/streambox-backend:latest}
+    pull_policy: always
     container_name: streambox-api
     ports:
       - "${PORT:-3000}:3000"
+    # Primary source of secrets (upload .env with the project, or paste vars in Hostinger UI)
     env_file:
       - .env
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
+      # Container networking only — secrets come from env_file / Hostinger env UI
       HOST: 0.0.0.0
       PORT: 3000
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      PUBLIC_URL: ${PUBLIC_URL:-}
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-      SEEDR_BASE_URL: ${SEEDR_BASE_URL:-https://www.seedr.cc}
-      TMDB_API_KEY: ${TMDB_API_KEY}
-      TMDB_BASE_URL: ${TMDB_BASE_URL:-https://api.themoviedb.org/3}
-      MOVIES_RULSZ: ${MOVIES_RULSZ:-https://www.5movierulz.vote/}
-      REDIS_URL: redis://redis:6379
+      # Use compose redis if REDIS_URL not set; otherwise keep your .env value
+      # (e.g. redis://:pass@redis.stbox.online:6379)
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     depends_on:
       redis:
         condition: service_healthy
@@ -64,38 +51,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-
-  api-dev:
-    profiles: ["dev"]
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-    container_name: streambox-api-dev
-    ports:
-      - "${PORT:-3000}:3000"
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: development
-      HOST: 0.0.0.0
-      PORT: 3000
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      PUBLIC_URL: ${PUBLIC_URL:-}
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-      SEEDR_BASE_URL: ${SEEDR_BASE_URL:-https://www.seedr.cc}
-      TMDB_API_KEY: ${TMDB_API_KEY}
-      TMDB_BASE_URL: ${TMDB_BASE_URL:-https://api.themoviedb.org/3}
-      MOVIES_RULSZ: ${MOVIES_RULSZ:-https://www.5movierulz.vote/}
-      REDIS_URL: redis://redis:6379
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./src:/app/src
-      - ./package.json:/app/package.json
-      - ./tsconfig.json:/app/tsconfig.json
-    restart: unless-stopped
 
 volumes:
   streambox-redis-data:
