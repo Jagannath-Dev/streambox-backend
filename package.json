@@ -15,8 +15,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "check": "tsx scripts/check-response.ts && tsx scripts/check-seedr-utils.ts && tsx scripts/check-quality.ts && tsx scripts/check-tmdb-resolve.ts && tsx scripts/check-poster-url.ts && tsx scripts/check-language.ts",
-    "docker:local": "docker compose -f docker-compose.local.yml up -d --build",
-    "docker:publish": "node scripts/docker-publish.mjs"
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.1",

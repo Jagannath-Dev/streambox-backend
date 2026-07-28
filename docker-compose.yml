@@ -1,8 +1,8 @@
-# Hostinger Docker Manager = PULL ONLY.
-# Set DOCKER_IMAGE + all app secrets in Hostinger env (or provide .env next to compose).
+# Streambox API + Redis
+#   docker compose up -d --build
+#   curl http://localhost:3000/health
 #
-# Important: do NOT re-list SUPABASE_*/TMDB_* under `environment:` with ${VAR}
-# unless Hostinger also injects them — empty ${VAR} overrides env_file and crashes the app.
+# Secrets: put them in .env (see .env.example). Do not bake them into the image.
 
 services:
   redis:
@@ -20,20 +20,18 @@ services:
       retries: 5
 
   api:
-    image: ${DOCKER_IMAGE:?Set DOCKER_IMAGE e.g. youruser/streambox-backend:latest}
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: streambox-api
     ports:
       - "${PORT:-3000}:3000"
-    # Primary source of secrets (upload .env with the project, or paste vars in Hostinger UI)
     env_file:
       - .env
     environment:
-      # Container networking only — secrets come from env_file / Hostinger env UI
       HOST: 0.0.0.0
       PORT: 3000
-      # Use compose redis if REDIS_URL not set; otherwise keep your .env value
-      # (e.g. redis://:pass@redis.stbox.online:6379)
+      # Use .env REDIS_URL if set, else the redis service above
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     depends_on:
       redis:
