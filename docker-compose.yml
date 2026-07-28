@@ -1,13 +1,18 @@
-# Production / Hostinger: upload the full project (Dockerfile, package.json, src, .env)
-# then: docker compose up -d --build
+# =============================================================================
+# Local / VPS (SSH) — build from Dockerfile:
+#   docker compose up -d --build
 #
-# Do NOT rely on pulling "streambox-backend:*" from Docker Hub — that image is not published.
-# pull_policy: build forces a local build from ./Dockerfile.
+# Hostinger Docker Manager often ONLY PULLS images (it skips local builds).
+# If you see "Image … Skipped" / "No such image", either:
+#   A) SSH into the VPS and run:  docker compose up -d --build
+#   B) Push an image to Docker Hub, set DOCKER_IMAGE, use:
+#        docker compose -f docker-compose.hostinger.yml up -d
+# =============================================================================
 
 services:
   redis:
     image: redis:7-alpine
-    container_name: streambox-backend
+    container_name: streambox-redis
     ports:
       - "6379:6379"
     volumes:
@@ -23,9 +28,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # Local tag only — never pull from a registry
-    image: streambox-api:local
-    pull_policy: build
+    # No `image:` name here — naming it made Hostinger try to pull/skip a
+    # non-existent registry image instead of building.
     container_name: streambox-api
     ports:
       - "${PORT:-3000}:3000"
@@ -43,7 +47,6 @@ services:
       TMDB_API_KEY: ${TMDB_API_KEY}
       TMDB_BASE_URL: ${TMDB_BASE_URL:-https://api.themoviedb.org/3}
       MOVIES_RULSZ: ${MOVIES_RULSZ:-https://www.5movierulz.vote/}
-      # Compose redis service (not host 127.0.0.1)
       REDIS_URL: redis://redis:6379
     depends_on:
       redis:
@@ -62,15 +65,11 @@ services:
       retries: 3
       start_period: 15s
 
-  # Optional local hot-reload — not for Hostinger production
-  # docker compose --profile dev up -d --build
   api-dev:
     profiles: ["dev"]
     build:
       context: .
       dockerfile: Dockerfile.dev
-    image: streambox-api:dev-local
-    pull_policy: build
     container_name: streambox-api-dev
     ports:
       - "${PORT:-3000}:3000"
