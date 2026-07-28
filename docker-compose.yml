@@ -1,24 +1,8 @@
-# Streambox API + Redis
+# Streambox API (uses existing Redis via REDIS_URL in .env)
 #   docker compose up -d --build
 #   curl http://localhost:3000/health
-#
-# Secrets: put them in .env (see .env.example). Do not bake them into the image.
 
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: streambox-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - streambox-redis-data:/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
   api:
     build:
       context: .
@@ -31,11 +15,6 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 3000
-      # Use .env REDIS_URL if set, else the redis service above
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-    depends_on:
-      redis:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test:
@@ -49,6 +28,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-
-volumes:
-  streambox-redis-data:
